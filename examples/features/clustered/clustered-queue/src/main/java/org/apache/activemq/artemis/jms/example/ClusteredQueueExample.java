@@ -16,16 +16,10 @@
  */
 package org.apache.activemq.artemis.jms.example;
 
-import javax.jms.Connection;
-import javax.jms.ConnectionFactory;
-import javax.jms.MessageConsumer;
-import javax.jms.MessageProducer;
-import javax.jms.Queue;
-import javax.jms.Session;
-import javax.jms.TextMessage;
-
 import org.apache.activemq.artemis.api.jms.ActiveMQJMSClient;
 import org.apache.activemq.artemis.jms.client.ActiveMQConnectionFactory;
+
+import javax.jms.*;
 
 /**
  * A simple example that demonstrates server side load-balancing of messages between the queue instances on different
@@ -65,15 +59,26 @@ public class ClusteredQueueExample {
 
          connection1.start();
 
-         // Step 11. We create JMS MessageConsumer objects on server 0 and server 1
-         MessageConsumer consumer0 = session0.createConsumer(queue);
+         // Step 11. We create JMS MessageConsumer objects on server 1 and server 1 + selector
+         MessageConsumer consumer0 = session1.createConsumer(queue);
 
-         MessageConsumer consumer1 = session1.createConsumer(queue);
+         MessageConsumer consumer1 = session1.createConsumer(queue, "JMSPriority >= 7");
 
          Thread.sleep(1000);
 
          // Step 12. We create a JMS MessageProducer object on server 0
          MessageProducer producer = session0.createProducer(queue);
+
+         // This works
+         //producer.setPriority(8);
+
+         // This doesn't
+         //producer.setPriority(4);
+
+         /*
+            Interestingly replacing consumer0 with this ALSO works:
+         MessageConsumer consumer0 = session1.createConsumer(queue, "JMSPriority >= 0");
+         */
 
          // Step 13. We send some messages to server 0
 
@@ -92,14 +97,26 @@ public class ClusteredQueueExample {
          // JMS Queues implement point-to-point message where each message is only ever consumed by a
          // maximum of one consumer
 
-         for (int i = 0; i < numMessages; i += 2) {
-            TextMessage message0 = (TextMessage) consumer0.receive(5000);
+         for (int i = 0; i < numMessages;) {
+            TextMessage message0 = (TextMessage) consumer0.receive(1000);
 
-            System.out.println("Got message: " + message0.getText() + " from node 0");
+            if (message0 != null) {
+               System.out.println("Got message: " + message0.getText() + " from node 1");
+               i++;
+            } else {
+               System.out.println("Did not receive a message on consumer0");
+            }
 
-            TextMessage message1 = (TextMessage) consumer1.receive(5000);
+            TextMessage message1 = (TextMessage) consumer1.receive(1000);
 
-            System.out.println("Got message: " + message1.getText() + " from node 1");
+            if (message1 != null) {
+               System.out.println("Got message: " + message1.getText() + " from node 1 with selector");
+               i++;
+            } else {
+               System.out.println("Did not receive a message on consumer1");
+            }
+
+
          }
       } finally {
          // Step 15. Be sure to close our resources!
